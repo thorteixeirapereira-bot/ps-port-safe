@@ -3009,50 +3009,55 @@ function exportColabPDF(){
   const avg=(data.reduce((a,r)=>a+r.riscoNivel,0)/n).toFixed(1);
   const incid=data.filter(r=>r.ocorr&&r.ocorr!=='Nenhum').length;
   const ts=new Date().toLocaleString('pt-BR');
-  const w=window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PS Port Safe – Relatório Colaboradores</title>
-<style>
-  body{font-family:Arial,sans-serif;background:#f0f6fa;color:#1a2b3c;margin:0;padding:24px}
-  h1{color:#04111F;font-size:22px;margin-bottom:4px}
-  .sub{font-size:13px;color:#4a6b85;margin-bottom:20px}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
-  .kpi{background:#fff;border:1px solid #dce8f4;border-radius:8px;padding:14px;text-align:center;border-top:3px solid #059669}
-  .kpi-v{font-size:28px;font-weight:900;color:#059669}
-  .kpi-l{font-size:10px;color:#64748b;margin-top:4px}
-  table{width:100%;border-collapse:collapse;background:#fff;font-size:12px}
-  th{background:#04111F;color:#fff;padding:8px 10px;text-align:left;font-size:11px}
-  td{padding:7px 10px;border-bottom:1px solid #e8eff5}
-  tr:nth-child(even) td{background:#f8fbfd}
-  .badge-high{color:#DC2626;font-weight:bold} .badge-low{color:#059669;font-weight:bold}
-  @media print{body{padding:10px}}
-</style></head><body>
-<h1>👷 PS Port Safe — Relatório de Colaboradores Internos</h1>
-<div class="sub">BTP · Santos/SP · Gerado em: ${ts} · ${n} registros${_colabFilteredData.length&&_colabFilteredData.length<n?' (filtrado)':''}</div>
-<div class="kpis">
-  <div class="kpi"><div class="kpi-v">${n}</div><div class="kpi-l">Total Colaboradores</div></div>
-  <div class="kpi"><div class="kpi-v" style="color:#DC2626">${Math.round(highRisk/n*100)}%</div><div class="kpi-l">Alto Risco (1-2)</div></div>
-  <div class="kpi"><div class="kpi-v">${avg}</div><div class="kpi-l">Nota Média</div></div>
-  <div class="kpi"><div class="kpi-v" style="color:#DC2626">${incid}</div><div class="kpi-l">Incidentes</div></div>
-</div>
-<table><thead><tr><th>ID</th><th>Data</th><th>Matrícula</th><th>Cargo</th><th>Turno</th><th>Área</th><th>Risco</th><th>EPI</th><th>Liderança</th><th>Zona</th><th>Sugestão</th></tr></thead><tbody>
-${data.map(r=>`<tr>
-  <td style="font-size:10px;color:#0077cc">${r.id||'—'}</td>
-  <td>${new Date(r.ts).toLocaleDateString('pt-BR')}</td>
-  <td>${r.matricula||'—'}</td>
-  <td style="font-size:11px">${r.cargo||'—'}</td>
-  <td>${r.turno||'—'}</td>
-  <td style="font-size:11px">${r.area||'—'}</td>
-  <td class="${r.riscoNivel<=2?'badge-high':'badge-low'}">${r.riscoNivel||'—'}</td>
-  <td style="font-size:11px">${r.epi||'—'}</td>
-  <td>${r.lideranca||'—'}</td>
-  <td>${r.zonaRisco||'—'}</td>
-  <td style="font-size:11px;max-width:200px">${r.sugestao&&r.sugestao!=='—'?r.sugestao.substring(0,80)+'…':'—'}</td>
-</tr>`).join('')}
-</tbody></table>
-<div style="margin-top:20px;font-size:11px;color:#64748b">PS Port Safe · Risk Intelligence Platform · Brasil Terminal Portuário · Santos/SP</div>
-<script>window.onload=()=>window.print();</script></body></html>`);
-  w.document.close();
-  showToast('📄 Relatório PDF de colaboradores gerado!');
+
+  const rows=data.map(r=>{
+    const cls=r.riscoNivel<=2?'color:#DC2626;font-weight:bold':'color:#059669;font-weight:bold';
+    const sug=r.sugestao&&r.sugestao!=='—'?r.sugestao.substring(0,80)+'...':'—';
+    return '<tr>'
+      +'<td style="font-size:10px;color:#0077cc">'+(r.id||'—')+'</td>'
+      +'<td>'+new Date(r.ts).toLocaleDateString('pt-BR')+'</td>'
+      +'<td>'+(r.matricula||'—')+'</td>'
+      +'<td style="font-size:11px">'+(r.cargo||'—')+'</td>'
+      +'<td>'+(r.turno||'—')+'</td>'
+      +'<td style="font-size:11px">'+(r.area||'—')+'</td>'
+      +'<td style="'+cls+'">'+(r.riscoNivel||'—')+'</td>'
+      +'<td style="font-size:11px">'+(r.epi||'—')+'</td>'
+      +'<td>'+(r.lideranca||'—')+'</td>'
+      +'<td>'+(r.zonaRisco||'—')+'</td>'
+      +'<td style="font-size:11px;max-width:200px">'+sug+'</td>'
+      +'</tr>';
+  }).join('');
+
+  const css='body{font-family:Arial,sans-serif;background:#f0f6fa;color:#1a2b3c;margin:0;padding:24px}'
+    +' h1{color:#04111F;font-size:20px;margin-bottom:4px}'
+    +' .sub{font-size:13px;color:#4a6b85;margin-bottom:20px}'
+    +' .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}'
+    +' .kpi{background:#fff;border:1px solid #dce8f4;border-radius:8px;padding:14px;text-align:center;border-top:3px solid #059669}'
+    +' .kpi-v{font-size:26px;font-weight:900;color:#059669}'
+    +' .kpi-l{font-size:10px;color:#64748b;margin-top:4px}'
+    +' table{width:100%;border-collapse:collapse;background:#fff;font-size:12px}'
+    +' th{background:#04111F;color:#fff;padding:8px 10px;text-align:left;font-size:11px}'
+    +' td{padding:7px 10px;border-bottom:1px solid #e8eff5}'
+    +' tr:nth-child(even) td{background:#f8fbfd}';
+
+  const body='<h1>👷 PS Port Safe — Relatório de Colaboradores Internos</h1>'
+    +'<div class="sub">BTP · Santos/SP · Gerado em: '+ts+' · '+n+' registros</div>'
+    +'<div class="kpis">'
+    +'<div class="kpi"><div class="kpi-v">'+n+'</div><div class="kpi-l">Total</div></div>'
+    +'<div class="kpi"><div class="kpi-v" style="color:#DC2626">'+Math.round(highRisk/n*100)+'%</div><div class="kpi-l">Alto Risco</div></div>'
+    +'<div class="kpi"><div class="kpi-v">'+avg+'</div><div class="kpi-l">Nota Média</div></div>'
+    +'<div class="kpi"><div class="kpi-v" style="color:#DC2626">'+incid+'</div><div class="kpi-l">Incidentes</div></div>'
+    +'</div>'
+    +'<table><thead><tr><th>ID</th><th>Data</th><th>Matrícula</th><th>Cargo</th><th>Turno</th><th>Área</th><th>Risco</th><th>EPI</th><th>Liderança</th><th>Zona</th><th>Sugestão</th></tr></thead>'
+    +'<tbody>'+rows+'</tbody></table>'
+    +'<div style="margin-top:20px;font-size:11px;color:#64748b">PS Port Safe · BTP · Santos/SP</div>';
+
+  const win=window.open('','_blank','width=1000,height=700');
+  if(!win){showToast('⚠ Popup bloqueado. Habilite popups para este site.');return;}
+  win.document.write('<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Relatorio Colaboradores</title><style>'+css+'</style></head><body>'+body+'</body></html>');
+  win.document.close();
+  setTimeout(()=>win.print(),600);
+  showToast('📄 Relatório PDF gerado!');
 }
 
 function updateColabDash(){
@@ -3691,7 +3696,7 @@ async function exportPDF(){
       window.print();
     }, 800);
   };
-<\/script>
+</script>
 </body>
 </html>`;
 
