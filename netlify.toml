@@ -1,0 +1,20 @@
+[build]
+  publish = "."
+
+[[redirects]]
+  from = "/*"
+  to = "/ps-port-safe.html"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
+[[headers]]
+  for = "/ps-port-safe.html"
+  [headers.values]
+    Cache-Control = "no-cache"
