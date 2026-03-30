@@ -51,6 +51,5 @@ self.addEventListener('fetch', event => {
   );
 });
 
-self.addEventListener('beforeinstallprompt', e => {
-  e.preventDefault();
-});
+// ✅ REMOVIDO o beforeinstallprompt com preventDefault()
+// Agora o navegador pode mostrar o banner de instalação normalmente
