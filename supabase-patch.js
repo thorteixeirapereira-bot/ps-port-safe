@@ -8,63 +8,79 @@
   };
 
   let db = null;
-  let _supabaseOk = false;
+  let _ok = false;
 
+  // ─── 1. INIT ────────────────────────────────────────────────────────────────
   function initSupabase() {
     try {
       if (!window.supabase) throw new Error('SDK nao carregado');
       db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-      _supabaseOk = true;
-      console.log('[PS] Supabase conectado!');
+      _ok = true;
+      console.log('[PS] Supabase conectado ✅');
     } catch (e) {
       console.warn('[PS] Supabase offline:', e.message);
     }
   }
 
+  // ─── 2. CRUD ────────────────────────────────────────────────────────────────
   async function dbGet(table) {
-    if (!_supabaseOk) return _local(table);
+    if (!_ok) return _local(table);
     try {
       const { data, error } = await db
-        .from(table).select('payload').order('created_at', { ascending: false });
+        .from(table)
+        .select('payload')
+        .order('created_at', { ascending: false });
       if (error) throw error;
-      const records = data.map(r => r.payload);
+      const records = (data || []).map(r => r.payload).filter(Boolean);
       localStorage.setItem(LOCAL_KEYS[table], JSON.stringify(records));
       return records;
     } catch (e) {
-      console.warn('[PS] dbGet falhou:', e.message);
+      console.warn('[PS] dbGet falhou, usando cache:', e.message);
       return _local(table);
     }
   }
 
   async function dbInsert(table, record) {
-    if (!_supabaseOk) return;
+    if (!_ok) return false;
     try {
-      const { error } = await db.from(table).insert([{ id: record.id, payload: record }]);
+      const { error } = await db
+        .from(table)
+        .insert([{ id: record.id, payload: record }]);
       if (error) throw error;
-      console.log('[PS] Salvo no Supabase:', record.id);
+      console.log('[PS] ✅ Inserido:', record.id);
+      return true;
     } catch (e) {
       console.warn('[PS] dbInsert falhou:', e.message);
+      return false;
     }
   }
 
   async function dbUpsert(table, records) {
-    if (!_supabaseOk || !records.length) return;
+    if (!_ok || !records.length) return;
     try {
       const rows = records.map(r => ({ id: r.id, payload: r }));
-      const { error } = await db.from(table).upsert(rows, { onConflict: 'id' });
+      const { error } = await db
+        .from(table)
+        .upsert(rows, { onConflict: 'id' });
       if (error) throw error;
+      console.log('[PS] ✅ Upsert:', records.length, 'registros em', table);
     } catch (e) {
       console.warn('[PS] dbUpsert falhou:', e.message);
     }
   }
 
   async function dbDeleteAll(table) {
-    if (!_supabaseOk) return;
+    if (!_ok) return false;
     try {
-      const { error } = await db.from(table).delete().not('id', 'is', null);
+      const { error } = await db
+        .from(table)
+        .delete()
+        .not('id', 'is', null);
       if (error) throw error;
+      return true;
     } catch (e) {
       console.warn('[PS] dbDeleteAll falhou:', e.message);
+      return false;
     }
   }
 
@@ -72,89 +88,187 @@
     return JSON.parse(localStorage.getItem(LOCAL_KEYS[table]) || '[]');
   }
 
-  async function syncFromSupabase() {
-    try {
-      const [respostas, colaboradores] = await Promise.all([
-        dbGet('respostas'),
-        dbGet('colaboradores'),
-      ]);
-      localStorage.setItem('ps_respostas',     JSON.stringify(respostas));
-      localStorage.setItem('ps_colaboradores', JSON.stringify(colaboradores));
-      console.log('[PS] Sync OK:', respostas.length, 'respostas,', colaboradores.length, 'colaboradores');
-    } catch (e) {
-      console.warn('[PS] Sync falhou:', e.message);
-    }
+  // ─── 3. SYNC COMPLETO ───────────────────────────────────────────────────────
+  async function syncAll() {
+    const [r, c] = await Promise.all([
+      dbGet('respostas'),
+      dbGet('colaboradores'),
+    ]);
+    console.log('[PS] Sync:', r.length, 'respostas,', c.length, 'colaboradores');
+    return { respostas: r, colaboradores: c };
   }
 
-  window.addEventListener('DOMContentLoaded', function () {
+  // ─── 4. REALTIME ────────────────────────────────────────────────────────────
+  function setupRealtime() {
+    if (!_ok) return;
+
+    db.channel('ps-live')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'respostas' },
+        async () => {
+          console.log('[PS] Realtime: nova resposta motorista');
+          await dbGet('respostas');
+          if (typeof updateBadge === 'function') updateBadge();
+          const dash = document.getElementById('dash-section');
+          if (dash && dash.classList.contains('active')) {
+            if (typeof applyFilters === 'function') await applyFilters();
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'colaboradores' },
+        async () => {
+          console.log('[PS] Realtime: nova resposta colaborador');
+          await dbGet('colaboradores');
+          if (typeof updateColabBadge === 'function') updateColabBadge();
+          const dash = document.getElementById('dash-section');
+          if (dash && dash.classList.contains('active')) {
+            if (typeof applyColabFilters === 'function') await applyColabFilters();
+          }
+        }
+      )
+      .subscribe(status => {
+        console.log('[PS] Realtime status:', status);
+        const dot = document.querySelector('.status-dot');
+        if (!dot) return;
+        if (status === 'SUBSCRIBED') {
+          dot.style.background = '#00c86e';
+          dot.title = 'Conectado · Realtime ativo';
+        } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+          dot.style.background = '#ff3b30';
+          dot.title = 'Realtime desconectado';
+        } else {
+          dot.style.background = '#ffb800';
+          dot.title = 'Reconectando...';
+        }
+      });
+  }
+
+  // ─── 5. PATCHES DAS FUNÇÕES PRINCIPAIS ─────────────────────────────────────
+  window.addEventListener('DOMContentLoaded', async function () {
+
     initSupabase();
 
+    // Sincroniza ao abrir o app
+    await syncAll();
+
+    // Realtime ativo desde o início
+    setupRealtime();
+
+    // ── submitForm (motoristas) ────────────────────────────────────────────────
     const _origSubmitForm = window.submitForm;
     window.submitForm = async function () {
-      _origSubmitForm();
-      const data = JSON.parse(localStorage.getItem('ps_respostas') || '[]');
-      const latest = data[data.length - 1];
-      if (latest) await dbInsert('respostas', latest);
+      // Captura snapshot antes
+      const antes = _local('respostas').length;
+
+      await _origSubmitForm();
+
+      // Pega o novo dado (foi inserido no início do array via unshift no original)
+      const depois = _local('respostas');
+      const novo = depois[0]; // primeiro = mais recente
+
+      if (novo) {
+        const ok = await dbInsert('respostas', novo);
+        if (!ok) {
+          // Se falhou, tenta upsert
+          await dbUpsert('respostas', [novo]);
+        }
+      }
     };
 
+    // ── cSubmit (colaboradores) ────────────────────────────────────────────────
     const _origCSubmit = window.cSubmit;
     window.cSubmit = async function () {
-      _origCSubmit();
-      const data = JSON.parse(localStorage.getItem('ps_colaboradores') || '[]');
-      const latest = data[data.length - 1];
-      if (latest) await dbInsert('colaboradores', latest);
+      await _origCSubmit();
+
+      const depois = _local('colaboradores');
+      const novo = depois[0];
+
+      if (novo) {
+        const ok = await dbInsert('colaboradores', novo);
+        if (!ok) {
+          await dbUpsert('colaboradores', [novo]);
+        }
+      }
     };
 
+    // ── dashLogin: sincroniza ao abrir dashboard ───────────────────────────────
     const _origDashLogin = window.dashLogin;
     window.dashLogin = async function (btn) {
       if (btn) btn.style.opacity = '0.5';
-      showToast('Sincronizando dados...');
-      await syncFromSupabase();
-      _origDashLogin(btn);
+      if (typeof showToast === 'function') showToast('⟳ Sincronizando dados...');
+      await syncAll();
+      await _origDashLogin(btn);
       if (btn) btn.style.opacity = '';
     };
 
-    window.clearAllData = async function () {
-      if (!confirm('Apagar TODOS os dados? Esta ação não pode ser desfeita.')) return;
-      await dbDeleteAll('respostas');
-      localStorage.removeItem('ps_respostas');
-      updateBadge(); applyFilters();
-      showToast('Dados apagados.');
+    // ── applyFilters: sempre busca do Supabase ─────────────────────────────────
+    const _origApplyFilters = window.applyFilters;
+    window.applyFilters = async function () {
+      await dbGet('respostas');
+      if (typeof _origApplyFilters === 'function') await _origApplyFilters();
     };
 
+    // ── applyColabFilters: sempre busca do Supabase ────────────────────────────
+    const _origApplyColabFilters = window.applyColabFilters;
+    window.applyColabFilters = async function () {
+      await dbGet('colaboradores');
+      if (typeof _origApplyColabFilters === 'function') await _origApplyColabFilters();
+    };
+
+    // ── clearAllData ───────────────────────────────────────────────────────────
+    window.clearAllData = async function () {
+      if (!confirm('⚠️ Apagar TODOS os dados do banco? Esta ação não pode ser desfeita.')) return;
+      await dbDeleteAll('respostas');
+      localStorage.removeItem('ps_respostas');
+      if (typeof updateBadge   === 'function') updateBadge();
+      if (typeof applyFilters  === 'function') await applyFilters();
+      if (typeof showToast     === 'function') showToast('🗑 Dados apagados!');
+    };
+
+    // ── clearColabData ─────────────────────────────────────────────────────────
     window.clearColabData = async function () {
       if (!confirm('Apagar TODOS os dados de colaboradores?')) return;
       await dbDeleteAll('colaboradores');
       localStorage.removeItem('ps_colaboradores');
-      updateColabBadge(); applyColabFilters();
-      showToast('Dados de colaboradores apagados.');
+      if (typeof updateColabBadge  === 'function') updateColabBadge();
+      if (typeof applyColabFilters === 'function') await applyColabFilters();
+      if (typeof showToast         === 'function') showToast('🗑 Colaboradores apagados!');
     };
 
+    // ── generateDemoData ───────────────────────────────────────────────────────
     const _origGenDemo = window.generateDemoData;
     window.generateDemoData = async function () {
-      const antes = JSON.parse(localStorage.getItem('ps_respostas') || '[]').length;
-      _origGenDemo();
-      const depois = JSON.parse(localStorage.getItem('ps_respostas') || '[]');
-      await dbUpsert('respostas', depois.slice(antes));
+      const antes = _local('respostas').length;
+      await _origGenDemo();
+      const depois = _local('respostas');
+      const novos = depois.slice(0, depois.length - antes);
+      if (novos.length) await dbUpsert('respostas', novos);
     };
 
+    // ── genColabDemo ───────────────────────────────────────────────────────────
     const _origGenColabDemo = window.genColabDemo;
     window.genColabDemo = async function () {
-      const antes = JSON.parse(localStorage.getItem('ps_colaboradores') || '[]').length;
-      _origGenColabDemo();
-      const depois = JSON.parse(localStorage.getItem('ps_colaboradores') || '[]');
-      await dbUpsert('colaboradores', depois.slice(antes));
+      const antes = _local('colaboradores').length;
+      await _origGenColabDemo();
+      const depois = _local('colaboradores');
+      const novos = depois.slice(0, depois.length - antes);
+      if (novos.length) await dbUpsert('colaboradores', novos);
     };
 
+    // ── Status visual ──────────────────────────────────────────────────────────
     const dot = document.querySelector('.status-dot');
     if (dot) {
-      dot.style.background = _supabaseOk ? '#00c86e' : '#ffb800';
-      dot.title = _supabaseOk ? 'Conectado ao Supabase' : 'Modo offline';
+      dot.style.background = _ok ? '#00c86e' : '#ffb800';
+      dot.title = _ok ? 'Conectado ao Supabase' : 'Modo offline (cache local)';
     }
 
-    console.log('[PS] Patches aplicados!');
+    console.log('[PS] ✅ Todos os patches aplicados! Realtime ativo.');
   });
 
+  // ─── 6. PWA – Service Worker ────────────────────────────────────────────────
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('/sw.js')
@@ -163,7 +277,9 @@
     });
   }
 
+  // ─── 7. PWA – Banner de instalação ─────────────────────────────────────────
   let _installPrompt = null;
+
   window.addEventListener('beforeinstallprompt', e => {
     e.preventDefault();
     _installPrompt = e;
@@ -194,10 +310,11 @@
         cursor:pointer;letter-spacing:1px
       ">INSTALAR</button>
       <button onclick="this.closest('#pwa-banner').remove()" style="
-        background:none;border:none;color:#3d6b8f;cursor:pointer;font-size:18px
+        background:none;border:none;color:#3d6b8f;cursor:pointer;font-size:18px;padding:4px
       ">✕</button>
     `;
     document.body.appendChild(banner);
+
     document.getElementById('pwa-install-btn').addEventListener('click', async () => {
       if (!_installPrompt) return;
       _installPrompt.prompt();
@@ -205,11 +322,12 @@
       if (outcome === 'accepted') banner.remove();
       _installPrompt = null;
     });
+
     setTimeout(() => banner?.remove(), 15000);
   }
 
   window.addEventListener('appinstalled', () => {
-    console.log('[PS] App instalado!');
+    console.log('[PS] App instalado com sucesso!');
     document.getElementById('pwa-banner')?.remove();
   });
 
