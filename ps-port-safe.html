@@ -2210,7 +2210,7 @@ function getMultiVal(sel){
   return [...document.querySelectorAll(sel+' .selected')].map(e=>e.dataset.val||e.textContent.trim());
 }
 
-function submitForm(){
+async function submitForm(){
   const id='PS-'+Date.now()+'-'+Math.random().toString(36).substr(2,5).toUpperCase();
   const resp={
     id,
@@ -2241,9 +2241,36 @@ function submitForm(){
     appAvalia:getVal('#q-avalia'),
     appComent:document.getElementById('q-appcoment').value||'—',
   };
-  const data=JSON.parse(localStorage.getItem('ps_respostas')||'[]');
-  data.push(resp);
-  localStorage.setItem('ps_respostas',JSON.stringify(data));
+  
+  // 🔥 NOVO: Salvar no Supabase primeiro
+  try {
+    const { data: supabaseData, error } = await window.supabaseClient
+      .from('respostas')
+      .insert([resp]);
+    
+    if (error) {
+      console.error('Erro no Supabase:', error);
+      showToast('❌ Erro ao salvar! Tentando salvar localmente...');
+      // Fallback para localStorage
+      const data = JSON.parse(localStorage.getItem('ps_respostas')||'[]');
+      data.push(resp);
+      localStorage.setItem('ps_respostas', JSON.stringify(data));
+    } else {
+      console.log('✅ Salvo no Supabase!');
+      // Atualiza cache local
+      const data = JSON.parse(localStorage.getItem('ps_respostas')||'[]');
+      data.push(resp);
+      localStorage.setItem('ps_respostas', JSON.stringify(data));
+    }
+  } catch (err) {
+    console.error('Erro ao conectar Supabase:', err);
+    // Fallback para localStorage
+    const data = JSON.parse(localStorage.getItem('ps_respostas')||'[]');
+    data.push(resp);
+    localStorage.setItem('ps_respostas', JSON.stringify(data));
+    showToast('⚠ Salvando apenas localmente (offline)');
+  }
+  
   document.getElementById('resp-id').textContent='ID: '+id;
   document.getElementById('form-nav').style.display='none';
   showStep('done');
@@ -2462,8 +2489,32 @@ function updateAppCharts(data){
 // DASHBOARD REFRESH
 // ═══════════════════════════════════════
 let filteredData=[];
-function applyFilters(){
-  const data=JSON.parse(localStorage.getItem('ps_respostas')||'[]');
+async function applyFilters(){
+  // 🔥 NOVO: Buscar do Supabase primeiro
+  let data = [];
+  
+  try {
+    const { data: supabaseData, error } = await window.supabaseClient
+      .from('respostas')
+      .select('*')
+      .order('ts', { ascending: false });
+    
+    if (error) {
+      console.error('Erro ao buscar do Supabase:', error);
+      data = JSON.parse(localStorage.getItem('ps_respostas')||'[]');
+    } else if (supabaseData && supabaseData.length > 0) {
+      data = supabaseData;
+      // Atualiza cache local com dados do servidor
+      localStorage.setItem('ps_respostas', JSON.stringify(data));
+      console.log(`✅ Buscados ${data.length} registros do Supabase`);
+    } else {
+      data = JSON.parse(localStorage.getItem('ps_respostas')||'[]');
+    }
+  } catch (err) {
+    console.error('Erro ao conectar Supabase:', err);
+    data = JSON.parse(localStorage.getItem('ps_respostas')||'[]');
+  }
+  
   const fOp=document.getElementById('f-op').value;
   const fFreq=document.getElementById('f-freq').value;
   const fRisk=document.getElementById('f-risk').value;
@@ -3212,7 +3263,7 @@ function exportColabCSV(){
 }
 
 
-function generateDemoData(){
+async function generateDemoData(){
   const ops=['Import','Export','Ambos','Vazio'];
   const freqs=['1x','2-3x','4-5x','Diário'];
   const turnos=['Manhã','Tarde','Noite','Vários'];
@@ -3228,12 +3279,13 @@ function generateDemoData(){
   const areas=['PONTO 1','PONTO 2','PONTO 3','Quadras B','Quadras A','Quadras C','Balança/DTA'];
   const sugs=['Aumentar sinalização nas quadras B','Reduzir velocidade na DTA','Melhorar iluminação no PONTO 3','Criar faixa exclusiva para pedestres','Instalar radar de velocidade na DV','Melhorar acesso à balança','Ampliar o estacionamento de espera','Revisar rota de containers vazios'];
 
-  let existing=JSON.parse(localStorage.getItem('ps_respostas')||'[]');
   const R=n=>Math.floor(Math.random()*n);
+  const novosRegistros = [];
+  
   for(let i=0;i<40;i++){
     const daysAgo=R(30);
     const dt=new Date(Date.now()-daysAgo*86400000-R(86400000));
-    existing.push({
+    novosRegistros.push({
       id:'PS-DEMO-'+i+'-'+Math.random().toString(36).substr(2,4).toUpperCase(),
       ts:dt.toISOString(),
       nome:'Motorista '+(i+1),operacao:ops[R(4)],empresa:'Transp. '+(i%5+1),
@@ -3254,10 +3306,33 @@ function generateDemoData(){
       appComent:Math.random()>0.6?['Seria muito útil pra saber onde tem fila','Queria ter mapa offline também','Ótima ideia, uso todo dia seria ótimo','Que tenha alertas de equipamentos pesados','Se funcionar bem, uso garantido','Comunicação em tempo real com o terminal seria incrível'][R(6)]:'—',
     });
   }
-  localStorage.setItem('ps_respostas',JSON.stringify(existing));
+  
+  // 🔥 NOVO: Salvar no Supabase
+  try {
+    const { data, error } = await window.supabaseClient
+      .from('respostas')
+      .insert(novosRegistros);
+    
+    if (error) {
+      console.error('Erro ao salvar demo no Supabase:', error);
+      // Fallback para localStorage
+      let existing=JSON.parse(localStorage.getItem('ps_respostas')||'[]');
+      existing.push(...novosRegistros);
+      localStorage.setItem('ps_respostas', JSON.stringify(existing));
+    } else {
+      console.log('✅ Demo salva no Supabase!');
+      localStorage.setItem('ps_respostas', JSON.stringify(novosRegistros));
+    }
+  } catch (err) {
+    console.error('Erro ao conectar Supabase:', err);
+    let existing=JSON.parse(localStorage.getItem('ps_respostas')||'[]');
+    existing.push(...novosRegistros);
+    localStorage.setItem('ps_respostas', JSON.stringify(existing));
+  }
+  
   updateBadge();
-  applyFilters();
-  showToast('⚡ 40 registros demo adicionados!');
+  await applyFilters(); // Aguarda buscar do Supabase
+  showToast('⚡ 40 registros demo adicionados e sincronizados!');
 }
 
 // ═══════════════════════════════════════
@@ -3281,10 +3356,33 @@ function exportJSON(){
   a.download='ps-port-safe-'+new Date().toISOString().substring(0,10)+'.json';
   a.click();showToast('✓ JSON exportado!');
 }
-function clearAllData(){
-  if(confirm('Apagar TODOS os dados coletados? Esta ação não pode ser desfeita.')){
-    localStorage.removeItem('ps_respostas');
-    updateBadge();applyFilters();showToast('🗑 Dados apagados.');
+async function clearAllData(){
+  if(confirm('⚠️ ATENÇÃO: Isso vai apagar TODOS os dados do Supabase e de todos os dispositivos! Esta ação não pode ser desfeita. Continuar?')){
+    try {
+      // 🔥 NOVO: Apagar do Supabase
+      const { error } = await window.supabaseClient
+        .from('respostas')
+        .delete()
+        .neq('id', '');
+      
+      if (error) {
+        console.error('Erro ao apagar do Supabase:', error);
+        showToast('❌ Erro ao apagar dados do servidor!');
+      } else {
+        console.log('✅ Dados apagados do Supabase');
+        // Apaga do localStorage
+        localStorage.removeItem('ps_respostas');
+        await applyFilters(); // Recarrega dados vazios
+        updateBadge();
+        showToast('🗑 Dados apagados de TODOS os dispositivos!');
+      }
+    } catch (err) {
+      console.error('Erro ao conectar Supabase:', err);
+      localStorage.removeItem('ps_respostas');
+      updateBadge();
+      applyFilters();
+      showToast('🗑 Dados apagados apenas localmente (offline)');
+    }
   }
 }
 
