@@ -1,8 +1,8 @@
 {
-  "name": "PS Port Safe – Risk Intelligence",
+  "name": "PS Port Safe - Risk Intelligence",
   "short_name": "Port Safe",
-  "description": "Plataforma de Inteligência de Risco – Brasil Terminal Portuário",
-  "start_url": "/ps-port-safe.html",
+  "description": "Plataforma de Inteligência de Risco - Brasil Terminal Portuário",
+  "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#040c18",
