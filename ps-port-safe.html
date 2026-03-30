@@ -2246,7 +2246,7 @@ async function submitForm(){
   try {
     const { data: supabaseData, error } = await window.supabaseClient
       .from('respostas')
-      .insert([resp]);
+      .insert([{ id: resp.id, payload: resp }]);
     
     if (error) {
       console.error('Erro no Supabase:', error);
