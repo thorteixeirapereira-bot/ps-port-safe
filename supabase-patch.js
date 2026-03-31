@@ -197,12 +197,22 @@
     // ── dashLogin: sincroniza ao abrir dashboard ───────────────────────────────
     const _origDashLogin = window.dashLogin;
     window.dashLogin = async function (btn) {
-      if (btn) btn.style.opacity = '0.5';
-      if (typeof showToast === 'function') showToast('⟳ Sincronizando dados...');
-      await syncAll();
-      await _origDashLogin(btn);
-      if (btn) btn.style.opacity = '';
-    };
+  if (btn) btn.style.opacity = '0.5';
+  if (typeof showToast === 'function') showToast('⟳ Sincronizando dados...');
+  await syncAll();
+  await _origDashLogin(btn);
+  if (btn) btn.style.opacity = '';
+  // Aguarda os gráficos iniciarem e re-renderiza com dados do banco
+  setTimeout(async () => {
+    await dbGet('respostas');
+    await dbGet('colaboradores');
+    if (typeof applyFilters      === 'function') await applyFilters();
+    if (typeof updateColabDash   === 'function') await updateColabDash();
+    if (typeof updateBadge       === 'function') updateBadge();
+    if (typeof updateColabBadge  === 'function') updateColabBadge();
+    if (typeof showToast         === 'function') showToast('✅ Dashboard atualizado!');
+  }, 800);
+};
 
     // ── applyFilters: sempre busca do Supabase ─────────────────────────────────
     const _origApplyFilters = window.applyFilters;
